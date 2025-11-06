@@ -34,8 +34,8 @@ User → Orchestrator Agent → Agent 1
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/multi-agent-orchestrator.git
-cd multi-agent-orchestrator
+git clone https://github.com/Anujpatel04/Multi-agent-orchestrator-system-with-standardized-A2A-Protocol.git
+cd Multi-agent-orchestrator-system-with-standardized-A2A-Protocol
 ```
 
 2. Create virtual environment:
