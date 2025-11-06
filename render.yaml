@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: multi-agent-orchestrator
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python web_app.py
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+    healthCheckPath: /
+
