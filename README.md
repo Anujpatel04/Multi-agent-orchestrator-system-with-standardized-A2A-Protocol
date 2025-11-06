@@ -140,13 +140,6 @@ The system implements a standardized A2A Protocol v1.0 for inter-agent communica
 
 See `docs/PROTOCOL.md` for full specification.
 
-## Configuration
-
-Environment variables (`.env`):
-```
-GEMINI_API_KEY=your_api_key_here
-```
-
 ## Technology Stack
 
 - **Backend**: Python 3.9+, Flask
@@ -154,10 +147,6 @@ GEMINI_API_KEY=your_api_key_here
 - **Database**: ChromaDB (vector database)
 - **Frontend**: HTML, CSS, JavaScript
 - **Communication**: REST API, A2A Protocol
-
-## License
-
-MIT License
 
 ## Contributing
 
