@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent System Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>Agent System</h1>
+                <p>Multi-Agent Coordination</p>
+            </div>
+            
+            <div class="agents-sidebar">
+                <div class="agent-card-sidebar orchestrator">
+                    <div class="agent-header-sidebar">
+                        <div class="agent-icon">🎯</div>
+                        <div>
+                            <h3>Orchestrator</h3>
+                            <span class="status-badge-small" id="orchestrator-status">Ready</span>
+                        </div>
+                    </div>
+                    <div class="agent-info">
+                        <span class="info-item">Connected: <strong id="orchestrator-agents">2</strong></span>
+                    </div>
+                </div>
+
+                <div class="agent-card-sidebar agent1">
+                    <div class="agent-header-sidebar">
+                        <div class="agent-icon">👤</div>
+                        <div>
+                            <h3>Agent 1</h3>
+                            <span class="agent-label">User 1</span>
+                        </div>
+                    </div>
+                    <div class="agent-info">
+                        <span class="status-badge-small" id="agent1-status">Ready</span>
+                        <span class="info-item">Schedules: <strong id="agent1-schedules">0</strong></span>
+                    </div>
+                </div>
+
+                <div class="agent-card-sidebar agent2">
+                    <div class="agent-header-sidebar">
+                        <div class="agent-icon">👤</div>
+                        <div>
+                            <h3>Agent 2</h3>
+                            <span class="agent-label">User 2</span>
+                        </div>
+                    </div>
+                    <div class="agent-info">
+                        <span class="status-badge-small" id="agent2-status">Ready</span>
+                        <span class="info-item">Schedules: <strong id="agent2-schedules">0</strong></span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Bar -->
+            <div class="top-bar">
+                <h2>Dashboard</h2>
+                <div class="flow-diagram-compact" id="flow-diagram-compact">
+                    <div class="flow-node-compact">User</div>
+                    <div class="flow-arrow-compact">→</div>
+                    <div class="flow-node-compact">Orchestrator</div>
+                    <div class="flow-arrow-compact">→</div>
+                    <div class="flow-node-compact">Agents</div>
+                </div>
+            </div>
+
+            <!-- Chat Interface -->
+            <section class="chat-section">
+                <div class="section-header">
+                    <h3>Chat with Agent System</h3>
+                    <div class="chat-controls">
+                        <select id="query-type" class="chat-select">
+                            <option value="all">All Agents</option>
+                            <option value="smart">Smart Routing</option>
+                            <option value="common_time">Find Common Time</option>
+                        </select>
+                        <button class="chat-control-btn" onclick="clearChat()" title="Clear Chat">
+                            <span>🗑️</span> New Chat
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Chat Messages Thread -->
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-message chat-system">
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-content">
+                            <div class="message-header">
+                                <span class="message-sender">System</span>
+                                <span class="message-time">Just now</span>
+                            </div>
+                            <div class="message-text">Hello! I'm your Orchestrator Agent. I can help you query schedules, find common free time, and coordinate between different users. How can I assist you today?</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Chat Input -->
+                <div class="chat-input-container">
+                    <div class="chat-input-wrapper">
+                        <textarea id="user-query" placeholder="Type your message..." rows="1"></textarea>
+                        <button id="send-query" onclick="sendQuery()" title="Send message">
+                            <span>➤</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Agent Details - Horizontal Layout -->
+            <section class="agent-details-section">
+                <div class="section-header">
+                    <h3>Agent Details</h3>
+                </div>
+                
+                <!-- Horizontal Agent Cards -->
+                <div class="agent-details-horizontal">
+                    <div class="agent-details-card" id="agent1-details">
+                        <div class="agent-card-header">
+                            <div class="agent-icon">👤</div>
+                            <div>
+                                <h4>Agent 1</h4>
+                                <span class="agent-label">User 1</span>
+                            </div>
+                            <span class="status-badge-small" id="agent1-status-display">Ready</span>
+                        </div>
+                        <div class="schedule-list" id="agent1-list"></div>
+                    </div>
+
+                    <div class="agent-details-card" id="agent2-details">
+                        <div class="agent-card-header">
+                            <div class="agent-icon">👤</div>
+                            <div>
+                                <h4>Agent 2</h4>
+                                <span class="agent-label">User 2</span>
+                            </div>
+                            <span class="status-badge-small" id="agent2-status-display">Ready</span>
+                        </div>
+                        <div class="schedule-list" id="agent2-list"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Communication Log Section -->
+            <section class="communication-log-section">
+                <div class="section-header">
+                    <h3>Communication Log</h3>
+                    <div class="log-controls">
+                        <button class="log-control-btn" onclick="clearLog()" title="Clear Log">
+                            <span>🗑️</span> Clear
+                        </button>
+                        <button class="log-control-btn" onclick="toggleAutoScroll()" id="autoscroll-btn" title="Auto-scroll">
+                            <span>📜</span> Auto-scroll
+                        </button>
+                    </div>
+                </div>
+                <div class="log-container" id="communication-log">
+                    <div class="log-entry log-info">
+                        <div class="log-timestamp">System</div>
+                        <div class="log-content">
+                            <span class="log-from">System</span>
+                            <span class="log-arrow">→</span>
+                            <span class="log-to">All</span>
+                            <span class="log-message">Communication log initialized. Waiting for queries...</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Communication Flow - At the end -->
+            <section class="communication-section">
+                <div class="section-header">
+                    <h3>Communication Flow</h3>
+                </div>
+                <div class="flow-diagram" id="flow-diagram">
+                    <div class="flow-node user">
+                        <div class="node-icon">👤</div>
+                        <div class="node-label">User</div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-node orchestrator-node">
+                        <div class="node-icon">🎯</div>
+                        <div class="node-label">Orchestrator</div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-agents">
+                        <div class="flow-node agent-node">
+                            <div class="node-icon">👤</div>
+                            <div class="node-label">Agent 1</div>
+                            <div class="node-subtitle">User 1</div>
+                        </div>
+                        <div class="flow-node agent-node">
+                            <div class="node-icon">👤</div>
+                            <div class="node-label">Agent 2</div>
+                            <div class="node-subtitle">User 2</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
