@@ -2,6 +2,8 @@
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
 from agents import OrchestratorAgent, Agent1, Agent2
+from core.model_helper import get_gemini_model, get_response_text, generate_content_with_retry
+from core.config import GEMINI_API_KEY
 import json
 import os
 from datetime import datetime
@@ -13,17 +15,108 @@ CORS(app)
 orchestrator = None
 agent1 = None
 agent2 = None
+suggestion_model = None
 
 def init_agents():
-    global orchestrator, agent1, agent2
+    global orchestrator, agent1, agent2, suggestion_model
     try:
         orchestrator = OrchestratorAgent()
         agent1 = Agent1()
         agent2 = Agent2()
+        # Initialize model for generating suggestions
+        suggestion_model = get_gemini_model(GEMINI_API_KEY)
         return True
     except Exception as e:
         print(f"Error initializing agents: {e}")
         return False
+
+def generate_dynamic_suggestions(user_query, response_text, query_type, agent_responses):
+    """Generate dynamic follow-up suggestions using LLM based on user query and response"""
+    try:
+        # Prepare context about what was found
+        context_info = ""
+        if agent_responses:
+            for agent_name, resp_data in agent_responses.items():
+                if resp_data.get('status') == 'success':
+                    relevant_data = resp_data.get('relevant_data', {})
+                    if relevant_data.get('documents') and relevant_data['documents'][0]:
+                        context_info += f"{agent_name} found {len(relevant_data['documents'][0])} relevant schedules. "
+                    else:
+                        context_info += f"{agent_name} found no relevant schedules. "
+        
+        prompt = f"""You are a helpful assistant that suggests relevant follow-up questions for a multi-agent schedule coordination system.
+
+User's Query: "{user_query}"
+
+System Response: "{response_text[:500]}"
+
+Context: {context_info if context_info else "No specific context available."}
+
+Query Type: {query_type}
+
+Based on the user's query and the system's response, generate 3 relevant, specific, and actionable follow-up questions that would help the user:
+1. Get more detailed information
+2. Explore related aspects of their query
+3. Find practical solutions or alternatives
+
+Guidelines:
+- Make suggestions natural and conversational
+- Be specific (mention days, times, or activities when relevant)
+- Keep each suggestion under 60 characters
+- Focus on what would be most useful next
+- If the response indicates no data was found, suggest adding schedules or trying different queries
+- If the response found schedules, suggest finding common times, comparing schedules, or getting more details
+
+Return ONLY a JSON array of exactly 3 suggestion strings, no other text. Format:
+["suggestion 1", "suggestion 2", "suggestion 3"]"""
+
+        llm_response = generate_content_with_retry(suggestion_model, prompt, max_retries=2, base_delay=1)
+        suggestions_text = get_response_text(llm_response).strip()
+        
+        # Try to extract JSON array from response
+        import re
+        json_match = re.search(r'\[.*?\]', suggestions_text, re.DOTALL)
+        if json_match:
+            suggestions = json.loads(json_match.group())
+            if isinstance(suggestions, list) and len(suggestions) >= 3:
+                return suggestions[:3]
+        
+        # Fallback: try to parse as JSON directly
+        try:
+            suggestions = json.loads(suggestions_text)
+            if isinstance(suggestions, list):
+                return suggestions[:3]
+        except:
+            pass
+        
+        # Final fallback: extract suggestions from text
+        lines = [line.strip().strip('"\'') for line in suggestions_text.split('\n') if line.strip()]
+        suggestions = [line for line in lines if line and len(line) < 100][:3]
+        
+        # If still no good suggestions, use smart defaults
+        if len(suggestions) < 3:
+            defaults = [
+                "Find common free time this week",
+                "Show detailed schedule for tomorrow",
+                "Compare both users' availability"
+            ]
+            # Try to customize based on query
+            if "monday" in user_query.lower() or "monday" in response_text.lower():
+                defaults[0] = "Find common time on Tuesday"
+            if "morning" in user_query.lower():
+                defaults[1] = "Show afternoon availability"
+            suggestions = defaults[:3]
+        
+        return suggestions[:3]
+        
+    except Exception as e:
+        print(f"Error generating suggestions: {e}")
+        # Return sensible defaults
+        return [
+            "Find common free time this week",
+            "Show detailed schedule for tomorrow", 
+            "Compare both users' availability"
+        ]
 
 init_agents()
 
@@ -207,9 +300,18 @@ def query_agents():
             'type': 'aggregated_response'
         })
         
+        # Generate dynamic suggestions based on query and response
+        suggestions = generate_dynamic_suggestions(
+            user_query,
+            result.get('aggregated_response', ''),
+            query_type,
+            result.get('agent_responses', {})
+        )
+        
         return jsonify({
             'result': result,
-            'communication_log': communication_log
+            'communication_log': communication_log,
+            'suggestions': suggestions
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

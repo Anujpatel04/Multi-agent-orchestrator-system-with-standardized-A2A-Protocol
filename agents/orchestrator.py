@@ -37,29 +37,114 @@ class OrchestratorAgent:
         
         Always provide precise, concise responses. Focus on the answer, not explanations."""
     
-    def query_all_agents(self, user_query: str):
+    def _determine_relevant_agents(self, user_query: str):
         """
-        Query all agents in the system and aggregate their responses
+        Intelligently determine which agents should be queried based on the user's query
         
         Args:
             user_query: The user's query
             
         Returns:
-            Aggregated response from all agents
+            Dictionary of relevant agents to query
+        """
+        # First, do a quick keyword check for common patterns
+        query_lower = user_query.lower()
+        
+        # Check for explicit user/agent mentions
+        user1_keywords = ['user 1', 'user1', 'agent 1', 'agent1', 'first user', 'user one']
+        user2_keywords = ['user 2', 'user2', 'agent 2', 'agent2', 'second user', 'user two']
+        all_keywords = ['both', 'all users', 'all agents', 'everyone', 'each user', 'all of them', 'together', 'common']
+        
+        mentions_user1 = any(keyword in query_lower for keyword in user1_keywords)
+        mentions_user2 = any(keyword in query_lower for keyword in user2_keywords)
+        mentions_all = any(keyword in query_lower for keyword in all_keywords)
+        
+        # If explicit mentions found, use them
+        if mentions_user1 and not mentions_user2 and not mentions_all:
+            return {'Agent 1': self.agent1}
+        elif mentions_user2 and not mentions_user1 and not mentions_all:
+            return {'Agent 2': self.agent2}
+        elif mentions_all or (mentions_user1 and mentions_user2):
+            return self.agents
+        
+        # If no clear pattern, use LLM to determine routing
+        routing_prompt = f"""Analyze this user query and determine which agent(s) should be queried.
+
+User Query: "{user_query}"
+
+Available Agents:
+- Agent 1: Manages User 1's schedule and routines
+- Agent 2: Manages User 2's schedule and routines
+
+IMPORTANT: 
+- If the query mentions "User 1", "Agent 1", "first user", or asks about User 1 specifically → respond with "agent1"
+- If the query mentions "User 2", "Agent 2", "second user", or asks about User 2 specifically → respond with "agent2"
+- If the query mentions "both", "all users", "all agents", "common", "together", or asks about multiple users → respond with "all"
+- If the query doesn't specify which user (e.g., "when am I free") → respond with "all" to be safe
+
+Respond with ONLY one word: "agent1", "agent2", or "all"
+Do not include any explanation or additional text."""
+
+        try:
+            routing_response = generate_content_with_retry(self.model, routing_prompt, max_retries=2, base_delay=1)
+            routing_decision = get_response_text(routing_response).strip().lower()
+            
+            # Clean up the response
+            routing_decision = routing_decision.replace('"', '').replace("'", '').strip()
+            
+            print(f"🔍 [ORCHESTRATOR] Intelligent routing decision: {routing_decision}")
+            
+            agents_to_query = {}
+            if 'agent1' in routing_decision or '1' in routing_decision:
+                agents_to_query['Agent 1'] = self.agent1
+            if 'agent2' in routing_decision or '2' in routing_decision:
+                agents_to_query['Agent 2'] = self.agent2
+            if 'all' in routing_decision or 'both' in routing_decision:
+                agents_to_query = self.agents
+            
+            # If still unclear, default to all agents
+            if not agents_to_query:
+                print("⚠️  [ORCHESTRATOR] Routing unclear, defaulting to all agents")
+                agents_to_query = self.agents
+            
+            return agents_to_query
+            
+        except Exception as e:
+            print(f"⚠️  [ORCHESTRATOR] Routing analysis failed: {e}, defaulting to all agents")
+            return self.agents
+    
+    def query_all_agents(self, user_query: str):
+        """
+        Intelligently query relevant agents based on the user's query
+        Only queries agents that are relevant to the query
+        
+        Args:
+            user_query: The user's query
+            
+        Returns:
+            Aggregated response from relevant agents
         """
         print(f"\n{'='*70}")
-        print("🔀 ORCHESTRATOR AGENT - COMMUNICATION LOG")
+        print("🔀 ORCHESTRATOR AGENT - INTELLIGENT ROUTING")
         print(f"{'='*70}")
         print(f"📥 [USER → ORCHESTRATOR]")
         print(f"   Query: {user_query}\n")
         
-        # Collect responses from all agents
-        agent_responses = {}
+        # Determine which agents are relevant
+        agents_to_query = self._determine_relevant_agents(user_query)
         
-        print("📡 [ORCHESTRATOR → AGENTS] Broadcasting query to all agents...\n")
+        if len(agents_to_query) == len(self.agents):
+            print("📡 [ORCHESTRATOR → AGENTS] Routing query to all agents...\n")
+        else:
+            agent_names = ', '.join(agents_to_query.keys())
+            print(f"📡 [ORCHESTRATOR → AGENTS] Routing query to: {agent_names}\n")
+        
         print("-" * 70)
         
-        for agent_name, agent in self.agents.items():
+        # Collect responses from relevant agents only
+        agent_responses = {}
+        
+        for agent_name, agent in agents_to_query.items():
             try:
                 print(f"📤 [ORCHESTRATOR → {agent_name}]")
                 print(f"   Sending query: \"{user_query}\"")
@@ -110,15 +195,20 @@ class OrchestratorAgent:
                     "error": str(e)
                 }
         
-        print("🔄 [ORCHESTRATOR] Aggregating responses from all agents...")
-        
-        # Aggregate responses using Gemini
-        aggregated_response = self._aggregate_responses(user_query, agent_responses)
-        
-        print(f"📤 [ORCHESTRATOR → USER]")
-        print(f"   Status: ✓ Ready")
-        print(f"   Aggregated response prepared")
-        print(f"{'='*70}\n")
+        if agent_responses:
+            print("🔄 [ORCHESTRATOR] Aggregating responses from queried agents...")
+            
+            # Aggregate responses using Gemini
+            aggregated_response = self._aggregate_responses(user_query, agent_responses)
+            
+            print(f"📤 [ORCHESTRATOR → USER]")
+            print(f"   Status: ✓ Ready")
+            print(f"   Aggregated response prepared")
+            print(f"{'='*70}\n")
+        else:
+            aggregated_response = "No relevant agents were queried. Please try rephrasing your query."
+            print(f"⚠️  [ORCHESTRATOR] No agents queried")
+            print(f"{'='*70}\n")
         
         return {
             "user_query": user_query,
@@ -184,6 +274,7 @@ Provide ONLY a PRECISE, CONCISE answer. No explanations, no theory.
     def smart_query(self, user_query: str):
         """
         Intelligently route query to relevant agents or query all
+        This method now uses the same intelligent routing as query_all_agents
         
         Args:
             user_query: The user's query
@@ -191,84 +282,8 @@ Provide ONLY a PRECISE, CONCISE answer. No explanations, no theory.
         Returns:
             Response from relevant agents
         """
-        # Use Gemini to determine which agents to query
-        routing_prompt = f"""Based on this user query, determine which agents should be queried:
-        
-User Query: {user_query}
-
-Available Agents:
-- Agent 1: Has schedule/routine database 1
-- Agent 2: Has schedule/routine database 2
-
-Respond with:
-- "all" if query should go to all agents
-- "agent1" if only Agent 1 is relevant
-- "agent2" if only Agent 2 is relevant
-- "both" if both agents are relevant
-
-Just respond with one word: all, agent1, agent2, or both"""
-        
-        try:
-            print(f"\n{'='*70}")
-            print("🧠 ORCHESTRATOR AGENT - SMART ROUTING")
-            print(f"{'='*70}")
-            print(f"📥 [USER → ORCHESTRATOR]")
-            print(f"   Query: {user_query}\n")
-            
-            print("🔍 [ORCHESTRATOR] Analyzing query for intelligent routing...")
-            routing_response = generate_content_with_retry(self.model, routing_prompt)
-            routing_decision = get_response_text(routing_response).strip().lower()
-            
-            print(f"💡 [ORCHESTRATOR] Routing Decision: {routing_decision}\n")
-            
-            # Query based on routing decision
-            agents_to_query = {}
-            
-            if routing_decision in ['all', 'both'] or 'agent1' in routing_decision:
-                agents_to_query['Agent 1'] = self.agent1
-            if routing_decision in ['all', 'both'] or 'agent2' in routing_decision:
-                agents_to_query['Agent 2'] = self.agent2
-            
-            # If routing failed, default to all agents
-            if not agents_to_query:
-                agents_to_query = self.agents
-            
-            # Collect responses from selected agents
-            agent_responses = {}
-            for agent_name, agent in agents_to_query.items():
-                try:
-                    print(f"  → Querying {agent_name}...")
-                    response = agent.query_schedule(user_query)
-                    agent_responses[agent_name] = {
-                        "response": response['response'],
-                        "relevant_data": response['relevant_data'],
-                        "status": "success"
-                    }
-                    print(f"    ✓ {agent_name} responded successfully")
-                except Exception as e:
-                    agent_responses[agent_name] = {
-                        "response": f"Error: {str(e)}",
-                        "status": "error",
-                        "error": str(e)
-                    }
-                    print(f"    ✗ {agent_name} encountered an error: {str(e)}")
-            
-            # Aggregate responses
-            aggregated_response = self._aggregate_responses(user_query, agent_responses)
-            
-            return {
-                "user_query": user_query,
-                "routing_decision": routing_decision,
-                "agents_queried": list(agents_to_query.keys()),
-                "agent_responses": agent_responses,
-                "aggregated_response": aggregated_response,
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            # Fallback to querying all agents
-            print(f"\nRouting failed, querying all agents...\n")
-            return self.query_all_agents(user_query)
+        # Use the same intelligent routing logic
+        return self.query_all_agents(user_query)
     
     def get_all_agent_data_summary(self):
         """
