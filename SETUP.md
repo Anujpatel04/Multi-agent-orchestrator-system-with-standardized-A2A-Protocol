@@ -26,10 +26,25 @@
    ```
 4. **Configure environment**
 
+   Create a `.env` file with your API keys:
+   
    ```bash
-   cp .env.example .env
-   # Edit .env and add your GEMINI_API_KEY
+   # Minimum setup (single key - slower):
+   GEMINI_API_KEY=your_gemini_api_key_here
+   
+   # Recommended setup (multiple APIs - fastest parallel processing):
+   GEMINI_API_KEY=your_gemini_api_key_here
+   GEMINI_API_KEY_AGENT1=your_gemini_api_key_here      # Gemini for Agent 1
+   DEEPSEEK_API_KEY_ORCHESTRATOR=your_deepseek_key   # DeepSeek for Orchestrator
+   DEEPSEEK_API_KEY=your_deepseek_api_key_here       # DeepSeek API for Agent 2
    ```
+   
+   **Note:** 
+   - Orchestrator uses DeepSeek API for routing and aggregation
+   - Agent 1 uses Gemini API
+   - Agent 2 uses DeepSeek API (different from Agent 1) for better parallel processing
+   - If DeepSeek keys are not provided, components will fallback to Gemini
+   - Using different APIs allows all components to process queries in parallel, making the system much faster!
 5. **Run the application**
 
    ```bash

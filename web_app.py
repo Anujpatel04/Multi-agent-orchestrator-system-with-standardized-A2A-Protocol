@@ -3,7 +3,7 @@ from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
 from agents import OrchestratorAgent, Agent1, Agent2
 from core.model_helper import get_gemini_model, get_response_text, generate_content_with_retry
-from core.config import GEMINI_API_KEY
+from core.config import GEMINI_API_KEY_ORCHESTRATOR
 import json
 import os
 from datetime import datetime
@@ -23,8 +23,21 @@ def init_agents():
         orchestrator = OrchestratorAgent()
         agent1 = Agent1()
         agent2 = Agent2()
-        # Initialize model for generating suggestions
-        suggestion_model = get_gemini_model(GEMINI_API_KEY)
+        # Initialize model for generating suggestions (use orchestrator key, fallback to main key)
+        try:
+            if GEMINI_API_KEY_ORCHESTRATOR and GEMINI_API_KEY_ORCHESTRATOR != "your_gemini_api_key_here":
+                suggestion_model = get_gemini_model(GEMINI_API_KEY_ORCHESTRATOR)
+            else:
+                # Fallback to main API key if orchestrator key not set
+                from core.config import GEMINI_API_KEY
+                if GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here":
+                    suggestion_model = get_gemini_model(GEMINI_API_KEY)
+                else:
+                    suggestion_model = None
+                    print("Warning: No valid API key for suggestions, will use default suggestions")
+        except Exception as e:
+            print(f"Warning: Could not initialize suggestion model: {e}")
+            suggestion_model = None
         return True
     except Exception as e:
         print(f"Error initializing agents: {e}")
@@ -32,6 +45,16 @@ def init_agents():
 
 def generate_dynamic_suggestions(user_query, response_text, query_type, agent_responses):
     """Generate dynamic follow-up suggestions using LLM based on user query and response"""
+    global suggestion_model
+    
+    # Skip suggestions if model not available (non-critical feature)
+    if not suggestion_model:
+        return [
+            "Find common free time this week",
+            "Show detailed schedule for tomorrow",
+            "Compare both users' availability"
+        ]
+    
     try:
         # Prepare context about what was found
         context_info = ""
@@ -44,33 +67,26 @@ def generate_dynamic_suggestions(user_query, response_text, query_type, agent_re
                     else:
                         context_info += f"{agent_name} found no relevant schedules. "
         
-        prompt = f"""You are a helpful assistant that suggests relevant follow-up questions for a multi-agent schedule coordination system.
+        # Shorter, faster prompt for suggestions
+        prompt = f"""Query: "{user_query[:80]}"
+Response: "{response_text[:200]}"
 
-User's Query: "{user_query}"
+Generate 3 short follow-up questions (max 50 chars each) as JSON array: ["q1", "q2", "q3"]"""
 
-System Response: "{response_text[:500]}"
-
-Context: {context_info if context_info else "No specific context available."}
-
-Query Type: {query_type}
-
-Based on the user's query and the system's response, generate 3 relevant, specific, and actionable follow-up questions that would help the user:
-1. Get more detailed information
-2. Explore related aspects of their query
-3. Find practical solutions or alternatives
-
-Guidelines:
-- Make suggestions natural and conversational
-- Be specific (mention days, times, or activities when relevant)
-- Keep each suggestion under 60 characters
-- Focus on what would be most useful next
-- If the response indicates no data was found, suggest adding schedules or trying different queries
-- If the response found schedules, suggest finding common times, comparing schedules, or getting more details
-
-Return ONLY a JSON array of exactly 3 suggestion strings, no other text. Format:
-["suggestion 1", "suggestion 2", "suggestion 3"]"""
-
-        llm_response = generate_content_with_retry(suggestion_model, prompt, max_retries=2, base_delay=1)
+        try:
+            llm_response = generate_content_with_retry(suggestion_model, prompt, max_retries=1, base_delay=0.5)
+        except Exception as api_error:
+            # If API key issue, return defaults without failing the whole request
+            error_msg = str(api_error)
+            if "API key" in error_msg.lower() or "API_KEY" in error_msg:
+                print(f"Warning: API key issue for suggestions, using defaults: {error_msg[:100]}")
+                # Return default suggestions instead of failing
+                return [
+                    "Find common free time this week",
+                    "Show detailed schedule for tomorrow",
+                    "Compare both users' availability"
+                ]
+            raise api_error
         suggestions_text = get_response_text(llm_response).strip()
         
         # Try to extract JSON array from response

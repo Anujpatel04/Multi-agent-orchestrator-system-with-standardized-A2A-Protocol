@@ -1,15 +1,17 @@
 import google.generativeai as genai
 from core.vector_db import VectorDatabase
-from core.config import GEMINI_API_KEY
+from core.config import GEMINI_API_KEY_AGENT1
 from datetime import datetime
 from core.model_helper import get_gemini_model, get_response_text, generate_content_with_retry
 
 class Agent1:
     """Agent for managing User 1's daily routine and schedule"""
     
-    def __init__(self):
+    def __init__(self, api_key=None):
+        # Use provided API key or default to AGENT1 key (same as orchestrator)
+        api_key = api_key or GEMINI_API_KEY_AGENT1
         # Initialize Gemini with best available model
-        self.model = get_gemini_model(GEMINI_API_KEY)
+        self.model = get_gemini_model(api_key)
         
         # Initialize vector database
         self.vector_db = VectorDatabase(agent_name="agent1")
@@ -57,6 +59,46 @@ class Agent1:
             "message": "Schedule data stored successfully"
         }
     
+    def _clean_markdown(self, text: str):
+        """Remove markdown formatting from text"""
+        if not text:
+            return text
+        
+        # Remove all markdown formatting characters
+        text = text.replace('**', '').replace('*', '').replace('__', '').replace('_', '').replace('•', '')
+        
+        # Remove bullet points and format as sentences
+        lines = text.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Remove leading bullet points, dashes, or asterisks
+            line = line.lstrip('•-*').strip()
+            
+            # Skip empty lines after cleaning
+            if not line:
+                continue
+            
+            # If line looks like a list item (starts with colon or is short), combine with previous
+            if ':' in line and len(line.split(':')) == 2:
+                # Format as "Item: description"
+                cleaned_lines.append(line)
+            elif cleaned_lines and not cleaned_lines[-1].endswith(('.', ':', '!', '?')):
+                # Append to previous line with comma
+                cleaned_lines[-1] += ', ' + line
+            else:
+                cleaned_lines.append(line)
+        
+        # Join lines with periods
+        result = '. '.join(cleaned_lines)
+        # Clean up multiple spaces, periods, and commas
+        result = result.replace('..', '.').replace('  ', ' ').replace(' ,', ',').replace(',,', ',').strip()
+        
+        return result
+    
     def query_schedule(self, query: str):
         """Query the schedule database using natural language"""
         try:
@@ -80,28 +122,60 @@ class Agent1:
             print(f"Error processing search results: {str(e)}")
             context = "\n\nNo relevant schedule information found in the database."
         
-        prompt = f"""{self.system_prompt}
-        
-        User query: {query}
-        
-        {context}
-        
-        Please provide a helpful response based on the available schedule information.
-        If the information is not available, let the user know and suggest they add it."""
+        # Conversational, precise prompt - no markdown formatting
+        prompt = f"""You are managing User 1's schedule. Answer this query naturally and precisely.
+
+Query: {query}
+
+{context}
+
+Provide a clear, helpful answer with specific details (times, days, activities) when available. Be conversational and friendly. If information is missing, say so clearly.
+
+IMPORTANT: 
+- Do NOT use markdown formatting (no asterisks *, no bold **, no bullet points •)
+- Write in plain text only
+- Use simple sentences and commas to separate items
+- Format: "User 1 is free before 9:30 AM, from 12:00 PM to 12:30 PM, and after 1:00 PM"."""
         
         try:
-            response = generate_content_with_retry(self.model, prompt, max_retries=2, base_delay=1)
+            # Try with more retries and better delays
+            response = generate_content_with_retry(self.model, prompt, max_retries=3, base_delay=1.0)
             response_text = get_response_text(response)
+            
+            # Clean markdown formatting from response
+            response_text = self._clean_markdown(response_text)
             
             if not response_text or response_text.strip() == "":
                 response_text = "I couldn't generate a response. Please try again or check your API configuration."
         except Exception as e:
+            error_msg = str(e).lower()
             print(f"Error generating response from Gemini API: {str(e)}")
-            # Fallback response
+            
+            # If we have context from vector DB, generate a useful answer from it
             if context and "Relevant schedule information" in context:
-                response_text = f"Based on the available schedule information, I found some relevant data. However, I encountered an error processing your query: {str(e)}"
+                # Extract schedule data and format it nicely
+                schedule_lines = []
+                if search_results.get('documents') and len(search_results['documents']) > 0:
+                    for i, doc in enumerate(search_results['documents'][0][:3]):  # Use first 3 results
+                        schedule_lines.append(f"• {doc}")
+                
+                if schedule_lines:
+                    # Generate a simple, useful answer from the data
+                    response_text = f"Based on User 1's schedule:\n\n" + "\n".join(schedule_lines)
+                    
+                    # Add a note about the query if relevant
+                    if "free" in query.lower() or "available" in query.lower():
+                        response_text += "\n\nThis shows the scheduled activities. Free time would be between these activities."
+                    elif "when" in query.lower() or "time" in query.lower():
+                        response_text += "\n\nThese are the scheduled times found in the database."
+                else:
+                    response_text = f"Based on the available schedule information for User 1, I found relevant data for your query: '{query}'. The schedule data is available, but I'm having trouble processing it right now. Please try again in a moment."
             else:
-                response_text = f"I couldn't find any relevant schedule information for your query: '{query}'. Please add schedule information or try a different query. Error: {str(e)}"
+                # No context found
+                if "rate limit" in error_msg or "quota" in error_msg or "429" in error_msg:
+                    response_text = f"I couldn't find specific schedule information for '{query}' in User 1's schedule. Please try again in a moment or add more schedule data."
+                else:
+                    response_text = f"I couldn't find any relevant schedule information for your query: '{query}'. Please add schedule information or try a different query."
         
         return {
             "query": query,

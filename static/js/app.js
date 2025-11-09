@@ -186,8 +186,8 @@ async function sendQuery() {
     // Add query to communication log
     addLogEntry('user', 'orchestrator', query, 'query');
     
-    // Show loading message
-    const loadingId = addMessageToChat('agent', 'Thinking...', queryType, true);
+    // Show loading message with typing indicator
+    const loadingId = addMessageToChat('agent', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>', queryType, true);
     
     // Show loading state
     const sendButton = document.getElementById('send-query');
@@ -291,15 +291,30 @@ function addMessageToChat(sender, message, queryType, isLoading = false) {
                 <span class="message-sender">${senderName}</span>
                 <span class="message-time">${timestamp}</span>
             </div>
-            <div class="message-text">${isLoading ? '<em>' + message + '</em>' : message.replace(/\n/g, '<br>')}</div>
+            <div class="message-text">${isLoading ? '<em>' + message + '</em>' : message}</div>
             ${sender === 'agent' ? '<div class="followups" id="followups-'+messageId+'"></div>' : ''}
         </div>
     `;
     
     chatMessages.appendChild(messageDiv);
     
-    // Scroll to bottom
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    // Smooth scroll to bottom with animation
+    setTimeout(() => {
+        chatMessages.scrollTo({
+            top: chatMessages.scrollHeight,
+            behavior: 'smooth'
+        });
+    }, 100);
+    
+    // Add typing animation for agent messages
+    if (sender === 'agent' && !isLoading) {
+        const messageTextEl = messageDiv.querySelector('.message-text');
+        messageTextEl.style.opacity = '0';
+        setTimeout(() => {
+            messageTextEl.style.transition = 'opacity 0.5s ease-in';
+            messageTextEl.style.opacity = '1';
+        }, 200);
+    }
     
     // Remove system welcome message if it exists
     const systemMsg = chatMessages.querySelector('.chat-system');
@@ -318,10 +333,13 @@ function formatAgentResponse(text) {
     t = t.replace(/\r/g, '').replace(/\t/g, ' ').replace(/\n{3,}/g, '\n\n');
     // Convert simple hyphen lists to bullets
     t = t.replace(/\n-\s+/g, '\n• ');
+    // Convert numbered lists
+    t = t.replace(/\n(\d+)\.\s+/g, '\n$1. ');
     // Capitalize first letter if sentence-like
     if (/^[a-z]/.test(t)) t = t.charAt(0).toUpperCase() + t.slice(1);
-    // Keep it concise
-    if (t.length > 1500) t = t.slice(0, 1500) + '...';
+    // Preserve line breaks for better readability
+    t = t.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+    // No length limit - show full response
     return t;
 }
 
@@ -406,11 +424,8 @@ function addLogEntry(from, to, message, type) {
         second: '2-digit' 
     });
     
-    // Format message - truncate if too long
-    const maxMessageLength = 300;
-    const displayMessage = message.length > maxMessageLength 
-        ? message.substring(0, maxMessageLength) + '...' 
-        : message;
+    // Show full message - no truncation for better visibility
+    const displayMessage = message;
     
     // Format names
     const formatName = (name) => {

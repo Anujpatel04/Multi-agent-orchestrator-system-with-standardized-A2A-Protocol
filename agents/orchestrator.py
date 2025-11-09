@@ -1,21 +1,46 @@
 
-from core.model_helper import get_gemini_model, get_response_text, generate_content_with_retry
-from core.config import GEMINI_API_KEY
+from core.model_helper import (
+    get_gemini_model, 
+    get_response_text, 
+    generate_content_with_retry,
+    get_deepseek_model,
+    get_deepseek_response_text,
+    generate_content_with_deepseek
+)
+from core.config import DEEPSEEK_API_KEY_ORCHESTRATOR, GEMINI_API_KEY_ORCHESTRATOR, GEMINI_API_KEY_AGENT1
 from agents.agent1 import Agent1
 from agents.agent2 import Agent2
 from datetime import datetime
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class OrchestratorAgent:
     """Master orchestrator agent that coordinates queries across all agents"""
     
     def __init__(self):
-        # Initialize Gemini model
-        self.model = get_gemini_model(GEMINI_API_KEY)
+        # Orchestrator uses DeepSeek API (fallback to Gemini if DeepSeek not available)
+        self.use_deepseek = False
         
-        # Initialize all sub-agents
-        self.agent1 = Agent1()
-        self.agent2 = Agent2()
+        if DEEPSEEK_API_KEY_ORCHESTRATOR and DEEPSEEK_API_KEY_ORCHESTRATOR != "your_deepseek_api_key_here":
+            try:
+                # Try to initialize DeepSeek
+                self.client = get_deepseek_model(DEEPSEEK_API_KEY_ORCHESTRATOR)
+                self.use_deepseek = True
+                print("Orchestrator: Using DeepSeek API")
+            except Exception as e:
+                print(f"Orchestrator: DeepSeek initialization failed: {e}, falling back to Gemini")
+                self.use_deepseek = False
+                # Fallback to Gemini
+                self.model = get_gemini_model(GEMINI_API_KEY_ORCHESTRATOR)
+        else:
+            # Use Gemini as fallback
+            self.model = get_gemini_model(GEMINI_API_KEY_ORCHESTRATOR)
+            print("Orchestrator: Using Gemini API (DeepSeek key not provided)")
+        
+        # Initialize all sub-agents with different API keys for parallel processing
+        # Agent 1 uses Gemini, Agent 2 uses DeepSeek, Orchestrator uses DeepSeek
+        self.agent1 = Agent1(api_key=GEMINI_API_KEY_AGENT1)
+        self.agent2 = Agent2()  # Agent2 will use DeepSeek API from config
         
         # Store all available agents
         self.agents = {
@@ -50,16 +75,16 @@ class OrchestratorAgent:
         # First, do a quick keyword check for common patterns
         query_lower = user_query.lower()
         
-        # Check for explicit user/agent mentions
-        user1_keywords = ['user 1', 'user1', 'agent 1', 'agent1', 'first user', 'user one']
-        user2_keywords = ['user 2', 'user2', 'agent 2', 'agent2', 'second user', 'user two']
-        all_keywords = ['both', 'all users', 'all agents', 'everyone', 'each user', 'all of them', 'together', 'common']
+        # Expanded keyword matching for faster routing (skip LLM when possible)
+        user1_keywords = ['user 1', 'user1', 'agent 1', 'agent1', 'first user', 'user one', '1st user', 'user one\'s', 'user1\'s']
+        user2_keywords = ['user 2', 'user2', 'agent 2', 'agent2', 'second user', 'user two', '2nd user', 'user two\'s', 'user2\'s']
+        all_keywords = ['both', 'all users', 'all agents', 'everyone', 'each user', 'all of them', 'together', 'common', 'compare', 'between', 'shared']
         
         mentions_user1 = any(keyword in query_lower for keyword in user1_keywords)
         mentions_user2 = any(keyword in query_lower for keyword in user2_keywords)
         mentions_all = any(keyword in query_lower for keyword in all_keywords)
         
-        # If explicit mentions found, use them
+        # Fast routing based on keywords - skip LLM call when possible
         if mentions_user1 and not mentions_user2 and not mentions_all:
             return {'Agent 1': self.agent1}
         elif mentions_user2 and not mentions_user1 and not mentions_all:
@@ -67,50 +92,34 @@ class OrchestratorAgent:
         elif mentions_all or (mentions_user1 and mentions_user2):
             return self.agents
         
-        # If no clear pattern, use LLM to determine routing
-        routing_prompt = f"""Analyze this user query and determine which agent(s) should be queried.
+        # Only use LLM if keywords are unclear - with shorter, faster prompt
+        routing_prompt = f"""Query: "{user_query[:100]}"
 
-User Query: "{user_query}"
+Route to: agent1 (User 1 only), agent2 (User 2 only), or all (both/multiple).
 
-Available Agents:
-- Agent 1: Manages User 1's schedule and routines
-- Agent 2: Manages User 2's schedule and routines
-
-IMPORTANT: 
-- If the query mentions "User 1", "Agent 1", "first user", or asks about User 1 specifically → respond with "agent1"
-- If the query mentions "User 2", "Agent 2", "second user", or asks about User 2 specifically → respond with "agent2"
-- If the query mentions "both", "all users", "all agents", "common", "together", or asks about multiple users → respond with "all"
-- If the query doesn't specify which user (e.g., "when am I free") → respond with "all" to be safe
-
-Respond with ONLY one word: "agent1", "agent2", or "all"
-Do not include any explanation or additional text."""
+One word only: agent1/agent2/all"""
 
         try:
-            routing_response = generate_content_with_retry(self.model, routing_prompt, max_retries=2, base_delay=1)
-            routing_decision = get_response_text(routing_response).strip().lower()
-            
-            # Clean up the response
-            routing_decision = routing_decision.replace('"', '').replace("'", '').strip()
-            
-            print(f"🔍 [ORCHESTRATOR] Intelligent routing decision: {routing_decision}")
+            # Use DeepSeek or Gemini based on initialization
+            if self.use_deepseek:
+                routing_response = generate_content_with_deepseek(self.client, routing_prompt, max_retries=1, base_delay=0.5)
+                routing_decision = get_deepseek_response_text(routing_response).strip().lower().replace('"', '').replace("'", '')
+            else:
+                routing_response = generate_content_with_retry(self.model, routing_prompt, max_retries=1, base_delay=0.5)
+                routing_decision = get_response_text(routing_response).strip().lower().replace('"', '').replace("'", '')
             
             agents_to_query = {}
-            if 'agent1' in routing_decision or '1' in routing_decision:
+            if 'agent1' in routing_decision or ('1' in routing_decision and '2' not in routing_decision):
                 agents_to_query['Agent 1'] = self.agent1
-            if 'agent2' in routing_decision or '2' in routing_decision:
+            if 'agent2' in routing_decision or ('2' in routing_decision and '1' not in routing_decision):
                 agents_to_query['Agent 2'] = self.agent2
-            if 'all' in routing_decision or 'both' in routing_decision:
+            if 'all' in routing_decision or (len(agents_to_query) == 0):
                 agents_to_query = self.agents
             
-            # If still unclear, default to all agents
-            if not agents_to_query:
-                print("⚠️  [ORCHESTRATOR] Routing unclear, defaulting to all agents")
-                agents_to_query = self.agents
-            
-            return agents_to_query
+            return agents_to_query if agents_to_query else self.agents
             
         except Exception as e:
-            print(f"⚠️  [ORCHESTRATOR] Routing analysis failed: {e}, defaulting to all agents")
+            # Fast fallback - default to all
             return self.agents
     
     def query_all_agents(self, user_query: str):
@@ -141,15 +150,16 @@ Do not include any explanation or additional text."""
         
         print("-" * 70)
         
-        # Collect responses from relevant agents only
+        # Collect responses from relevant agents in PARALLEL for faster communication
         agent_responses = {}
         
-        for agent_name, agent in agents_to_query.items():
+        def query_agent_parallel(agent_name, agent):
+            """Query a single agent and return the response"""
             try:
                 print(f"📤 [ORCHESTRATOR → {agent_name}]")
                 print(f"   Sending query: \"{user_query}\"")
-                print(f"   Status: Processing...")
-                sys.stdout.flush()  # Ensure output is displayed immediately
+                print(f"   Status: Processing in parallel...")
+                sys.stdout.flush()
                 
                 # Call agent with timeout handling
                 try:
@@ -168,7 +178,8 @@ Do not include any explanation or additional text."""
                     print(f"   Found {len(response['relevant_data']['documents'][0])} relevant results")
                 sys.stdout.flush()
                 
-                agent_responses[agent_name] = {
+                result = {
+                    "agent_name": agent_name,
                     "response": response['response'],
                     "relevant_data": response.get('relevant_data', {}),
                     "status": "success"
@@ -178,22 +189,53 @@ Do not include any explanation or additional text."""
                 print("-" * 70 + "\n")
                 sys.stdout.flush()
                 
+                return result
+                
             except Exception as e:
                 import traceback
                 error_details = traceback.format_exc()
                 print(f"📥 [{agent_name} → ORCHESTRATOR]")
                 print(f"   Status: ✗ Error")
                 print(f"   Error: {str(e)}")
-                print(f"   Details: {error_details}")
                 print("-" * 70 + "\n")
                 sys.stdout.flush()
                 
-                agent_responses[agent_name] = {
+                return {
+                    "agent_name": agent_name,
                     "response": f"Error: {str(e)}",
                     "relevant_data": None,
                     "status": "error",
                     "error": str(e)
                 }
+        
+        # Query all agents in parallel using ThreadPoolExecutor
+        print("⚡ [ORCHESTRATOR] Querying agents in parallel for faster response...\n")
+        with ThreadPoolExecutor(max_workers=len(agents_to_query)) as executor:
+            # Submit all agent queries simultaneously
+            future_to_agent = {
+                executor.submit(query_agent_parallel, agent_name, agent): agent_name
+                for agent_name, agent in agents_to_query.items()
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_agent):
+                agent_name = future_to_agent[future]
+                try:
+                    result = future.result()
+                    agent_responses[result["agent_name"]] = {
+                        "response": result["response"],
+                        "relevant_data": result.get("relevant_data", {}),
+                        "status": result["status"]
+                    }
+                    if result.get("error"):
+                        agent_responses[result["agent_name"]]["error"] = result["error"]
+                except Exception as e:
+                    agent_responses[agent_name] = {
+                        "response": f"Error: {str(e)}",
+                        "relevant_data": None,
+                        "status": "error",
+                        "error": str(e)
+                    }
         
         if agent_responses:
             print("🔄 [ORCHESTRATOR] Aggregating responses from queried agents...")
@@ -219,7 +261,8 @@ Do not include any explanation or additional text."""
     
     def _aggregate_responses(self, user_query: str, agent_responses: dict):
         """
-        Aggregate responses from all agents into a coherent answer
+        Aggregate responses from all agents into a coherent, precise answer
+        Compares schedules internally to provide unified answers
         
         Args:
             user_query: Original user query
@@ -228,48 +271,332 @@ Do not include any explanation or additional text."""
         Returns:
             Aggregated response string
         """
-        # Prepare context from all agent responses
-        context = "Responses from all agents:\n\n"
+        # Extract both responses and raw schedule data
+        clean_responses = {}
+        schedule_data = {}
         
         for agent_name, response_data in agent_responses.items():
-            context += f"[{agent_name}]\n"
             if response_data['status'] == 'success':
-                context += f"Response: {response_data['response']}\n"
-                
-                # Add relevant data if available
-                if response_data['relevant_data'] and response_data['relevant_data']['documents']:
-                    docs = response_data['relevant_data']['documents'][0]
-                    if docs:
-                        context += f"Found {len(docs)} relevant results in {agent_name}'s database.\n"
-            else:
-                context += f"Error: {response_data.get('error', 'Unknown error')}\n"
-            context += "\n"
+                resp = response_data.get('response', '')
+                # Skip responses that contain error messages
+                if resp and 'error' not in resp.lower() and 'rate limit' not in resp.lower():
+                    clean_responses[agent_name] = resp
+                    
+                    # Extract raw schedule data from relevant_data
+                    relevant_data = response_data.get('relevant_data', {})
+                    if relevant_data and relevant_data.get('documents'):
+                        docs = relevant_data['documents'][0] if len(relevant_data['documents']) > 0 else []
+                        if docs:
+                            schedule_data[agent_name] = docs
         
-        # Generate aggregated response using Gemini
-        prompt = f"""{self.system_prompt}
+        # If no clean responses, return helpful message
+        if not clean_responses:
+            return "I couldn't retrieve schedule information at this time. Please try again in a moment."
+        
+        # If only one agent responded, return their response directly
+        if len(clean_responses) == 1:
+            return list(clean_responses.values())[0]
+        
+        # Prepare detailed context with both responses and raw schedule data
+        context_parts = []
+        schedule_info_parts = []
+        
+        user1_schedules = []
+        user2_schedules = []
+        
+        for agent_name, resp in clean_responses.items():
+            user_name = "User 1" if "Agent 1" in agent_name or "1" in agent_name else "User 2"
+            context_parts.append(f"{user_name} Response:\n{resp}")
+            
+            # Extract and organize schedule data
+            if agent_name in schedule_data:
+                schedules = schedule_data[agent_name]
+                schedule_list = []
+                for doc in schedules[:5]:  # Use first 5 results
+                    schedule_list.append(f"- {doc}")
+                
+                if schedule_list:
+                    schedule_info_parts.append(f"{user_name} Schedule Data:\n" + "\n".join(schedule_list))
+                    # Store for comparison
+                    if "1" in agent_name or "Agent 1" in agent_name:
+                        user1_schedules = schedules
+                    else:
+                        user2_schedules = schedules
+        
+        context = "\n\n---\n\n".join(context_parts)
+        schedule_info = "\n\n---\n\n".join(schedule_info_parts) if schedule_info_parts else ""
+        
+        # Enhanced prompt that specifically asks for comparison and merging
+        query_lower = user_query.lower()
+        is_comparison_query = any(word in query_lower for word in [
+            'common', 'both', 'all', 'together', 'everyone', 'compare', 
+            'free time', 'available', 'meeting', 'when', 'schedule'
+        ])
+        
+        if is_comparison_query and len(schedule_data) >= 2:
+            # Concise comparison prompt - only summary
+            prompt = f"""You are an Orchestrator Agent that COMPARES schedules from multiple users.
 
-User Query: {user_query}
+User's Question: "{user_query}"
 
+Individual Agent Responses:
 {context}
 
-Provide ONLY a PRECISE, CONCISE answer. No explanations, no theory.
-- Give direct answer to the user's query
-- Maximum 2-3 sentences
-- If information not available, respond briefly: "Information not found"
-- Focus on the answer, not the process"""
+Raw Schedule Data from Database:
+{schedule_info}
+
+CRITICAL: Provide ONLY a concise summary answer. NO detailed breakdowns, NO bullet points, NO sections.
+
+Instructions:
+1. Compare both users' schedules
+2. Find common free times (when both users are free)
+3. Provide ONLY a brief summary (2-3 sentences maximum)
+
+Format: Write a simple, conversational answer stating when both users are free together. If no common time, say so briefly.
+
+Example: "Based on comparing both schedules, you both have free time on Sunday from 1:00 PM to 2:30 PM, and after 9:00 PM."
+
+Provide ONLY the summary answer (no bullet points, no sections, no detailed breakdowns):"""
+        else:
+            # Standard aggregation for non-comparison queries - concise summary only
+            prompt = f"""You are an Orchestrator Agent coordinating between multiple users' schedules.
+
+User's Question: "{user_query}"
+
+Responses from agents:
+{context}
+
+{schedule_info if schedule_info else ""}
+
+Your task: Provide ONLY a concise summary answer (2-3 sentences maximum).
+
+Guidelines:
+- Be conversational and natural
+- Provide specific information (times, days, activities) when available
+- Keep it brief - just the essential answer
+- NO bullet points, NO sections, NO detailed breakdowns
+- Just a simple, direct answer to the question
+
+Provide your concise response:"""
 
         try:
-            response = generate_content_with_retry(self.model, prompt)
-            aggregated_text = get_response_text(response)
+            # Use more retries for aggregation to ensure we get a response
+            # Use DeepSeek or Gemini based on initialization
+            if self.use_deepseek:
+                response = generate_content_with_deepseek(self.client, prompt, max_retries=3, base_delay=1.0)
+                aggregated_text = get_deepseek_response_text(response).strip()
+            else:
+                response = generate_content_with_retry(self.model, prompt, max_retries=3, base_delay=1.0)
+                aggregated_text = get_response_text(response).strip()
+            
+            # Post-process to clean up response - remove ALL markdown formatting
+            aggregated_text = aggregated_text.replace('**', '').replace('*', '').replace('__', '').replace('_', '').replace('•', '')
+            
+            if is_comparison_query:
+                # If response has too much detail (multiple lines, sections), extract just the summary
+                if aggregated_text.count('\n') > 5:
+                    # Try to extract just the summary part
+                    lines = aggregated_text.split('\n')
+                    summary_lines = []
+                    in_summary = False
+                    
+                    for line in lines:
+                        line_lower = line.lower()
+                        # Look for summary section
+                        if 'summary' in line_lower or 'best' in line_lower or 'common free time' in line_lower:
+                            in_summary = True
+                            # Extract the actual summary text (skip headers)
+                            if ':' in line and len(line.split(':')) > 1:
+                                summary_lines.append(line.split(':', 1)[1].strip())
+                            continue
+                        
+                        # If we're in summary and hit another section, stop
+                        if in_summary and (line.strip().startswith('**') or line.strip().startswith('•') or 
+                                          'conflict' in line_lower or 'schedule' in line_lower and ':' in line):
+                            break
+                        
+                        if in_summary and line.strip():
+                            summary_lines.append(line.strip())
+                    
+                    if summary_lines:
+                        aggregated_text = ' '.join(summary_lines)
+                    else:
+                        # Fallback: use computation-based summary
+                        aggregated_text = self._create_comparison_fallback(
+                            user_query, clean_responses, schedule_data
+                        )
+                elif not any(word in aggregated_text.lower() for word in ['free time', 'common', 'available', 'overlap', 'conflict']):
+                    # Response doesn't seem to compare - use our computation
+                    aggregated_text = self._create_comparison_fallback(
+                        user_query, clean_responses, schedule_data
+                    )
+            
             return aggregated_text
         except Exception as e:
-            # Fallback: return simple aggregation
-            aggregated_parts = []
-            for agent_name, response_data in agent_responses.items():
-                if response_data['status'] == 'success':
-                    aggregated_parts.append(f"{agent_name}: {response_data['response']}")
+            # Fallback: create comparison manually
+            if is_comparison_query and len(schedule_data) >= 2:
+                return self._create_comparison_fallback(user_query, clean_responses, schedule_data)
             
-            return "\n\n".join(aggregated_parts) if aggregated_parts else "No responses available from agents."
+            # Standard fallback
+            if len(clean_responses) == 1:
+                return list(clean_responses.values())[0]
+            
+            responses_list = list(clean_responses.values())
+            if len(responses_list) == 2:
+                return f"{responses_list[0]}\n\n{responses_list[1]}"
+            return "\n\n".join(responses_list)
+    
+    def _parse_schedule_times(self, schedule_text: str):
+        """Parse schedule text to extract time ranges"""
+        import re
+        time_ranges = []
+        
+        # Pattern to match time ranges like "09:30-10:00" or "11:00-13:00"
+        time_pattern = r'(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})'
+        matches = re.findall(time_pattern, schedule_text)
+        
+        for match in matches:
+            start_hour, start_min = int(match[0]), int(match[1])
+            end_hour, end_min = int(match[2]), int(match[3])
+            
+            start_minutes = start_hour * 60 + start_min
+            end_minutes = end_hour * 60 + end_min
+            
+            time_ranges.append((start_minutes, end_minutes))
+        
+        # Also look for single times like "Break 14:30" - treat as 30 min block
+        single_time_pattern = r'(\d{1,2}):(\d{2})(?!\s*-\s*\d)'
+        single_matches = re.findall(single_time_pattern, schedule_text)
+        
+        for match in single_matches:
+            hour, minute = int(match[0]), int(match[1])
+            start_minutes = hour * 60 + minute
+            end_minutes = start_minutes + 30  # Default 30 min for single times
+            time_ranges.append((start_minutes, end_minutes))
+        
+        return sorted(time_ranges)
+    
+    def _merge_time_ranges(self, time_ranges):
+        """Merge overlapping time ranges"""
+        if not time_ranges:
+            return []
+        
+        sorted_ranges = sorted(time_ranges)
+        merged = [sorted_ranges[0]]
+        
+        for current_start, current_end in sorted_ranges[1:]:
+            last_start, last_end = merged[-1]
+            
+            # If current range overlaps or is adjacent to last range, merge them
+            if current_start <= last_end:
+                merged[-1] = (last_start, max(last_end, current_end))
+            else:
+                merged.append((current_start, current_end))
+        
+        return merged
+    
+    def _find_common_free_time(self, user1_times, user2_times):
+        """Find common free time between two users' schedules"""
+        # Merge overlapping intervals for each user
+        user1_merged = self._merge_time_ranges(user1_times)
+        user2_merged = self._merge_time_ranges(user2_times)
+        
+        # Combine all busy times
+        all_busy = sorted(user1_merged + user2_merged)
+        
+        # Merge overlapping intervals across both users
+        merged = self._merge_time_ranges(all_busy)
+        
+        # Find free time gaps (assuming day is 0-1440 minutes = 24 hours)
+        free_times = []
+        day_start = 0  # 00:00
+        day_end = 1440  # 24:00
+        
+        if not merged:
+            return [(day_start, day_end)]
+        
+        # Check before first busy period
+        if merged[0][0] > day_start:
+            free_times.append((day_start, merged[0][0]))
+        
+        # Check between busy periods
+        for i in range(len(merged) - 1):
+            gap_start = merged[i][1]
+            gap_end = merged[i + 1][0]
+            if gap_end > gap_start:
+                free_times.append((gap_start, gap_end))
+        
+        # Check after last busy period
+        if merged[-1][1] < day_end:
+            free_times.append((merged[-1][1], day_end))
+        
+        return free_times
+    
+    def _format_time(self, minutes):
+        """Convert minutes since midnight to HH:MM format"""
+        hours = minutes // 60
+        mins = minutes % 60
+        return f"{hours:02d}:{mins:02d}"
+    
+    def _create_comparison_fallback(self, user_query: str, clean_responses: dict, schedule_data: dict):
+        """Create a comparison answer by actually computing overlaps and free times"""
+        user1_resp = clean_responses.get("Agent 1", "")
+        user2_resp = clean_responses.get("Agent 2", "")
+        user1_sched = schedule_data.get("Agent 1", [])
+        user2_sched = schedule_data.get("Agent 2", [])
+        
+        # Parse schedule times from raw schedule data
+        user1_times = []
+        user2_times = []
+        
+        for sched in user1_sched:
+            user1_times.extend(self._parse_schedule_times(sched))
+        
+        for sched in user2_sched:
+            user2_times.extend(self._parse_schedule_times(sched))
+        
+        # Merge time ranges to remove duplicates and overlaps
+        user1_merged = self._merge_time_ranges(user1_times)
+        user2_merged = self._merge_time_ranges(user2_times)
+        
+        # Build comparison answer
+        query_lower = user_query.lower()
+        answer = ""
+        
+        if "common" in query_lower or "free" in query_lower or "available" in query_lower:
+            # Find common free time
+            common_free = self._find_common_free_time(user1_times, user2_times)
+            
+            if common_free:
+                # Create concise summary only - no detailed breakdown
+                free_filtered = [(s, e) for s, e in common_free if e - s >= 30]
+                if free_filtered:
+                    free_times_str = []
+                    for start, end in free_filtered[:3]:  # Limit to top 3
+                        free_times_str.append(f"{self._format_time(start)} - {self._format_time(end)}")
+                    
+                    answer = f"Based on comparing both schedules, you both have free time at {', '.join(free_times_str)}."
+                else:
+                    answer = "After comparing both schedules, there is no significant common free time available (all gaps are less than 30 minutes)."
+            else:
+                answer = "After comparing both schedules, there is no common free time available. Both users have overlapping or consecutive busy periods throughout the day."
+        else:
+            # General comparison - concise summary only
+            common_free = self._find_common_free_time(user1_times, user2_times)
+            
+            if common_free:
+                free_filtered = [(s, e) for s, e in common_free if e - s >= 30]
+                if free_filtered:
+                    free_times_str = []
+                    for start, end in free_filtered[:3]:  # Limit to top 3
+                        free_times_str.append(f"{self._format_time(start)} - {self._format_time(end)}")
+                    answer = f"Based on comparing both schedules, common free time is available at {', '.join(free_times_str)}."
+                else:
+                    answer = "After comparing both schedules, there is no significant common free time available (all gaps are less than 30 minutes)."
+            else:
+                answer = "After comparing both schedules, there is no common free time available. Both users have overlapping busy periods."
+        
+        return answer if answer else "I couldn't extract schedule times for comparison. Please ensure schedules include time information."
     
     def smart_query(self, user_query: str):
         """
@@ -432,8 +759,13 @@ Consider:
 
 Respond with a clear answer showing when ALL users are free together."""
                 
-                response = generate_content_with_retry(self.model, analysis_prompt)
-                analysis_text = get_response_text(response)
+                # Use DeepSeek or Gemini based on initialization
+                if self.use_deepseek:
+                    response = generate_content_with_deepseek(self.client, analysis_prompt, max_retries=2, base_delay=0.5)
+                    analysis_text = get_deepseek_response_text(response)
+                else:
+                    response = generate_content_with_retry(self.model, analysis_prompt)
+                    analysis_text = get_response_text(response)
                 
                 agent_analyses[agent_name] = {
                     "analysis": analysis_text,
@@ -484,8 +816,13 @@ If no common time exists, respond: "No common free time available"
 Keep it brief - maximum 2-3 sentences. Just the answer."""
         
         try:
-            final_response = generate_content_with_retry(self.model, aggregation_prompt)
-            aggregated_response = get_response_text(final_response)
+            # Use DeepSeek or Gemini based on initialization
+            if self.use_deepseek:
+                final_response = generate_content_with_deepseek(self.client, aggregation_prompt, max_retries=3, base_delay=1.0)
+                aggregated_response = get_deepseek_response_text(final_response)
+            else:
+                final_response = generate_content_with_retry(self.model, aggregation_prompt)
+                aggregated_response = get_response_text(final_response)
         except Exception as e:
             # Fallback aggregation
             aggregated_response = "\n\n".join([
