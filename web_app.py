@@ -361,14 +361,18 @@ def query_single_agent(agent_name):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5001))
+    debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    
     print("\n" + "="*70)
     print("🌐 Starting Web Frontend for Agent System")
     print("="*70)
-    print("\n📡 Server will be available at: http://localhost:5001")
+    if os.environ.get('RAILWAY_ENVIRONMENT'):
+        print(f"\n📡 Server running on Railway (Port: {port})")
+    else:
+        print(f"\n📡 Server will be available at: http://localhost:{port}")
     print("📊 Open your browser to visualize all agents")
     print("\n" + "="*70 + "\n")
     
-    port = int(os.environ.get('PORT', 5001))
-    debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     app.run(debug=debug, host='0.0.0.0', port=port)
 
