@@ -69,7 +69,7 @@ cd Multi-agent-orchestrator-system-with-standardized-A2A-Protocol
 2. **Create virtual environment:**
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 ```
 
 3. **Install dependencies:**
@@ -82,14 +82,10 @@ pip install -r requirements.txt
 Create a `.env` file with your API keys:
    
 ```bash
-# Minimum setup (single key - slower):
 GEMINI_API_KEY=your_gemini_api_key_here
-
-# Recommended setup (multiple APIs - fastest parallel processing):
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_API_KEY_AGENT1=your_gemini_api_key_here      # Gemini for Agent 1
-DEEPSEEK_API_KEY_ORCHESTRATOR=your_deepseek_key     # DeepSeek for Orchestrator
-DEEPSEEK_API_KEY=your_deepseek_api_key_here        # DeepSeek API for Agent 2
+GEMINI_API_KEY_AGENT1=your_gemini_api_key_here
+DEEPSEEK_API_KEY_ORCHESTRATOR=your_deepseek_key
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
 ```
 
 **Note:** 
@@ -111,34 +107,34 @@ Open your browser and navigate to: `http://localhost:5001`
 
 ```
 .
-├── agents/              # Agent implementations
-│   ├── agent1.py        # Agent 1 (User 1) - Gemini API
-│   ├── agent2.py        # Agent 2 (User 2) - DeepSeek API
-│   └── orchestrator.py  # Orchestrator agent - DeepSeek API
-├── core/                # Core framework
-│   ├── protocol.py      # A2A Protocol implementation
-│   ├── a2a_framework.py # Framework integration
-│   ├── vector_db.py     # Vector database wrapper
-│   ├── config.py        # Configuration & API keys
-│   └── model_helper.py  # LLM API helpers (Gemini & DeepSeek)
-├── scripts/             # Utility scripts
+├── agents/
+│   ├── agent1.py
+│   ├── agent2.py
+│   └── orchestrator.py
+├── core/
+│   ├── protocol.py
+│   ├── a2a_framework.py
+│   ├── vector_db.py
+│   ├── config.py
+│   └── model_helper.py
+├── scripts/
 │   ├── populate_routines.py
 │   ├── query_agents.py
 │   └── ...
-├── static/              # Web assets
+├── static/
 │   ├── css/
-│   │   └── style.css    # Modern UI styling
+│   │   └── style.css
 │   └── js/
-│       └── app.js       # Interactive frontend logic
-├── templates/           # HTML templates
-│   └── index.html       # Main dashboard
-├── web_app.py          # Flask web application
-├── orchestrator_app.py  # CLI interface
-├── requirements.txt    # Python dependencies
-├── Procfile            # Railway deployment config
-├── railway.json        # Railway settings
-├── runtime.txt         # Python version
-└── README.md           # This file
+│       └── app.js
+├── templates/
+│   └── index.html
+├── web_app.py
+├── orchestrator_app.py
+├── requirements.txt
+├── Procfile
+├── railway.json
+├── runtime.txt
+└── README.md
 ```
 
 ## 💡 Usage
@@ -242,10 +238,10 @@ Key files:
 
 Set these in your Railway project:
 - `GEMINI_API_KEY`
-- `GEMINI_API_KEY_AGENT1` (optional)
-- `DEEPSEEK_API_KEY_ORCHESTRATOR` (optional)
-- `DEEPSEEK_API_KEY` (optional)
-- `PORT` (automatically set by Railway)
+- `GEMINI_API_KEY_AGENT1`
+- `DEEPSEEK_API_KEY_ORCHESTRATOR`
+- `DEEPSEEK_API_KEY`
+- `PORT`
 
 ## 🛠️ Technology Stack
 
