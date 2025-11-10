@@ -31,17 +31,6 @@ A production-ready multi-agent system with an orchestrator pattern for coordinat
 - **Environment Detection**: Automatically adapts to deployment environment
 - **Production Optimized**: Error handling, retries, and rate limit management
 
-## 🏗️ Architecture
-
-```
-User → Orchestrator Agent → Agent 1 (User 1)
-                        → Agent 2 (User 2)
-                        ↓
-                  [Aggregate Responses]
-                        ↓
-                    User Response
-```
-
 ### Communication Flow
 
 The system features a beautiful animated communication flow diagram that shows:
@@ -103,40 +92,6 @@ python web_app.py
 6. **Access the dashboard:**
 Open your browser and navigate to: `http://localhost:5001`
 
-## 📁 Project Structure
-
-```
-.
-├── agents/
-│   ├── agent1.py
-│   ├── agent2.py
-│   └── orchestrator.py
-├── core/
-│   ├── protocol.py
-│   ├── a2a_framework.py
-│   ├── vector_db.py
-│   ├── config.py
-│   └── model_helper.py
-├── scripts/
-│   ├── populate_routines.py
-│   ├── query_agents.py
-│   └── ...
-├── static/
-│   ├── css/
-│   │   └── style.css
-│   └── js/
-│       └── app.js
-├── templates/
-│   └── index.html
-├── web_app.py
-├── orchestrator_app.py
-├── requirements.txt
-├── Procfile
-├── railway.json
-├── runtime.txt
-└── README.md
-```
-
 ## 💡 Usage
 
 ### Web Interface
@@ -194,7 +149,7 @@ Query agents separately:
 python scripts/query_agents.py
 ```
 
-## 🔄 Agent-to-Agent Protocol
+##  Agent-to-Agent Protocol
 
 The system implements a standardized A2A Protocol v1.0 for inter-agent communication:
 
@@ -206,7 +161,7 @@ The system implements a standardized A2A Protocol v1.0 for inter-agent communica
 
 See `docs/PROTOCOL.md` for full specification.
 
-## 🎨 UI Features
+##  UI Features
 
 ### Communication Flow Diagram
 
@@ -216,23 +171,6 @@ See `docs/PROTOCOL.md` for full specification.
 - **Visual States**: Active (blue), Processing (orange), Success (green)
 - **Query Counter**: Badge showing number of processed queries
 
-### Modern Design
-
-- **Color Theme**: Black and light blue (InfinityFX inspired)
-- **Smooth Animations**: CSS transitions and keyframe animations
-- **Responsive Layout**: Adapts to different screen sizes
-- **Professional Typography**: Inter font family
-
-## 🚢 Deployment
-
-### Railway Deployment
-
-The application is pre-configured for Railway deployment. See `RAILWAY_DEPLOY.md` for detailed instructions.
-
-Key files:
-- `Procfile`: Defines the web process
-- `railway.json`: Railway configuration
-- `runtime.txt`: Python version specification
 
 ### Environment Variables
 
@@ -274,13 +212,6 @@ Set these in your Railway project:
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-See LICENSE file for details.
-
-## 🙏 Acknowledgments
-
 - Google Gemini API for LLM capabilities
 - DeepSeek for additional LLM support
 - ChromaDB for vector database functionality
