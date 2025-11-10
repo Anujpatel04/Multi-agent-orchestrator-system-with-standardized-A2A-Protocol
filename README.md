@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./banner.png" alt="Multi-Agent Orchestrator System Banner" width="100%" />
+</p>
+
 # Multi-Agent Orchestrator System
 
 A production-ready multi-agent system with an orchestrator pattern for coordinating specialized agents. Features intelligent routing, context-aware conversations, and a beautiful interactive dashboard with real-time communication flow visualization.
