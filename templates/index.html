@@ -182,28 +182,53 @@
             <section class="communication-section">
                 <div class="section-header">
                     <h3>Communication Flow</h3>
+                    <div class="flow-status" id="flow-status">
+                        <span class="status-indicator" id="flow-status-indicator"></span>
+                        <span id="flow-status-text">Idle</span>
+                    </div>
                 </div>
-                <div class="flow-diagram" id="flow-diagram">
-                    <div class="flow-node user">
-                        <div class="node-icon">👤</div>
-                        <div class="node-label">User</div>
-                    </div>
-                    <div class="flow-arrow">→</div>
-                    <div class="flow-node orchestrator-node">
-                        <div class="node-icon">🎯</div>
-                        <div class="node-label">Orchestrator</div>
-                    </div>
-                    <div class="flow-arrow">→</div>
-                    <div class="flow-agents">
-                        <div class="flow-node agent-node">
+                <div class="flow-diagram-container" id="flow-diagram-container">
+                    <svg class="flow-connections" id="flow-connections" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid meet">
+                        <!-- Connection from User to Orchestrator -->
+                        <path id="path-user-orch" class="connection-path" d="M 100 150 L 400 150" stroke="#60a5fa" stroke-width="2" fill="none" opacity="0.3"/>
+                        <!-- Connection from Orchestrator to Agent 1 -->
+                        <path id="path-orch-agent1" class="connection-path" d="M 550 150 L 850 100" stroke="#60a5fa" stroke-width="2" fill="none" opacity="0.3"/>
+                        <!-- Connection from Orchestrator to Agent 2 -->
+                        <path id="path-orch-agent2" class="connection-path" d="M 550 150 L 850 200" stroke="#60a5fa" stroke-width="2" fill="none" opacity="0.3"/>
+                        <!-- Response paths (reverse) -->
+                        <path id="path-agent1-orch" class="connection-path response-path" d="M 850 100 L 550 150" stroke="#10b981" stroke-width="2" fill="none" opacity="0.3" stroke-dasharray="5,5"/>
+                        <path id="path-agent2-orch" class="connection-path response-path" d="M 850 200 L 550 150" stroke="#10b981" stroke-width="2" fill="none" opacity="0.3" stroke-dasharray="5,5"/>
+                        <path id="path-orch-user" class="connection-path response-path" d="M 400 150 L 100 150" stroke="#10b981" stroke-width="2" fill="none" opacity="0.3" stroke-dasharray="5,5"/>
+                    </svg>
+                    <div class="flow-diagram" id="flow-diagram">
+                        <div class="flow-node user-node" id="flow-user-node" data-node="user">
+                            <div class="node-pulse-ring"></div>
                             <div class="node-icon">👤</div>
-                            <div class="node-label">Agent 1</div>
-                            <div class="node-subtitle">User 1</div>
+                            <div class="node-label">User</div>
+                            <div class="node-status" id="user-node-status">Ready</div>
                         </div>
-                        <div class="flow-node agent-node">
-                            <div class="node-icon">👤</div>
-                            <div class="node-label">Agent 2</div>
-                            <div class="node-subtitle">User 2</div>
+                        <div class="flow-node orchestrator-node" id="flow-orch-node" data-node="orchestrator">
+                            <div class="node-pulse-ring"></div>
+                            <div class="node-icon">🎯</div>
+                            <div class="node-label">Orchestrator</div>
+                            <div class="node-status" id="orch-node-status">Ready</div>
+                            <div class="node-badge" id="orch-badge">0</div>
+                        </div>
+                        <div class="flow-agents">
+                            <div class="flow-node agent-node" id="flow-agent1-node" data-node="agent1">
+                                <div class="node-pulse-ring"></div>
+                                <div class="node-icon">👤</div>
+                                <div class="node-label">Agent 1</div>
+                                <div class="node-subtitle">User 1</div>
+                                <div class="node-status" id="agent1-node-status">Ready</div>
+                            </div>
+                            <div class="flow-node agent-node" id="flow-agent2-node" data-node="agent2">
+                                <div class="node-pulse-ring"></div>
+                                <div class="node-icon">👤</div>
+                                <div class="node-label">Agent 2</div>
+                                <div class="node-subtitle">User 2</div>
+                                <div class="node-status" id="agent2-node-status">Ready</div>
+                            </div>
                         </div>
                     </div>
                 </div>

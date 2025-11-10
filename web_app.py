@@ -278,7 +278,7 @@ def query_agents():
                 })
             
         elif query_type == 'smart':
-            result = orchestrator.smart_query(user_query)
+            result = orchestrator.smart_query(user_query, conversation_history)
             communication_log.append({
                 'timestamp': datetime.now().isoformat(),
                 'from': 'orchestrator',
@@ -287,14 +287,24 @@ def query_agents():
                 'type': 'routing'
             })
         else:
-            result = orchestrator.query_all_agents(user_query)
-            communication_log.append({
-                'timestamp': datetime.now().isoformat(),
-                'from': 'orchestrator',
-                'to': 'all_agents',
-                'message': 'Broadcasting query to all agents',
-                'type': 'broadcast'
-            })
+            result = orchestrator.query_all_agents(user_query, conversation_history)
+            # Check if this was a general question (no agent coordination)
+            if result.get('query_type') == 'general':
+                communication_log.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'from': 'orchestrator',
+                    'to': 'user',
+                    'message': 'General question detected - answering directly',
+                    'type': 'direct_response'
+                })
+            else:
+                communication_log.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'from': 'orchestrator',
+                    'to': 'all_agents',
+                    'message': 'Broadcasting query to all agents',
+                    'type': 'broadcast'
+                })
         
         # Add agent responses to log (for non-common_time queries)
         if query_type != 'common_time':

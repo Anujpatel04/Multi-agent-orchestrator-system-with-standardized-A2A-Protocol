@@ -48,6 +48,9 @@ class OrchestratorAgent:
             "Agent 2": self.agent2
         }
         
+        # Conversation history for context awareness
+        self.conversation_history = []
+        
         # System prompt for orchestrator
         self.system_prompt = """You are an Orchestrator Agent, a master coordinator that manages multiple specialized agents.
         Your role is to:
@@ -62,16 +65,121 @@ class OrchestratorAgent:
         
         Always provide precise, concise responses. Focus on the answer, not explanations."""
     
-    def _determine_relevant_agents(self, user_query: str):
+    def _infer_user_from_context(self, user_query: str, conversation_history: list = None):
         """
-        Intelligently determine which agents should be queried based on the user's query
+        Infer which user is being discussed from conversation history if not explicitly mentioned
+        
+        Args:
+            user_query: Current user query
+            conversation_history: List of previous conversation messages
+            
+        Returns:
+            'user1', 'user2', 'both', or None if cannot infer
+        """
+        query_lower = user_query.lower()
+        
+        # Check current query first
+        user1_keywords = ['user 1', 'user1', 'agent 1', 'agent1', 'first user', 'user one', '1st user', 'user one\'s', 'user1\'s']
+        user2_keywords = ['user 2', 'user2', 'agent 2', 'agent2', 'second user', 'user two', '2nd user', 'user two\'s', 'user2\'s']
+        all_keywords = ['both', 'all users', 'all agents', 'everyone', 'each user', 'all of them', 'together', 'common', 'compare', 'between', 'shared']
+        
+        mentions_user1 = any(keyword in query_lower for keyword in user1_keywords)
+        mentions_user2 = any(keyword in query_lower for keyword in user2_keywords)
+        mentions_all = any(keyword in query_lower for keyword in all_keywords)
+        
+        # If explicitly mentioned in current query, return immediately
+        if mentions_all or (mentions_user1 and mentions_user2):
+            return 'both'
+        if mentions_user1:
+            return 'user1'
+        if mentions_user2:
+            return 'user2'
+        
+        # If no explicit mention, check conversation history
+        if conversation_history:
+            # Look through recent history (last 5 messages) for user mentions
+            recent_history = conversation_history[-5:] if len(conversation_history) > 5 else conversation_history
+            
+            for msg in reversed(recent_history):  # Check most recent first
+                # Handle different message formats (frontend uses 'content', backend might use 'message' or 'query')
+                msg_text = str(msg.get('content', '') or msg.get('message', '') or msg.get('query', '') or msg if isinstance(msg, str) else '').lower()
+                if not msg_text:
+                    continue
+                
+                # Check if this message mentioned a user
+                hist_mentions_user1 = any(keyword in msg_text for keyword in user1_keywords)
+                hist_mentions_user2 = any(keyword in msg_text for keyword in user2_keywords)
+                hist_mentions_all = any(keyword in msg_text for keyword in all_keywords)
+                
+                if hist_mentions_all or (hist_mentions_user1 and hist_mentions_user2):
+                    return 'both'
+                if hist_mentions_user1:
+                    return 'user1'
+                if hist_mentions_user2:
+                    return 'user2'
+        
+        # Check stored conversation history if provided
+        if self.conversation_history:
+            for msg in reversed(self.conversation_history[-5:]):
+                msg_text = str(msg).lower()
+                hist_mentions_user1 = any(keyword in msg_text for keyword in user1_keywords)
+                hist_mentions_user2 = any(keyword in msg_text for keyword in user2_keywords)
+                hist_mentions_all = any(keyword in msg_text for keyword in all_keywords)
+                
+                if hist_mentions_all or (hist_mentions_user1 and hist_mentions_user2):
+                    return 'both'
+                if hist_mentions_user1:
+                    return 'user1'
+                if hist_mentions_user2:
+                    return 'user2'
+        
+        return None
+    
+    def _is_schedule_related_query(self, user_query: str):
+        """
+        Determine if the query is schedule-related or a general question
         
         Args:
             user_query: The user's query
             
         Returns:
+            True if schedule-related, False if general question
+        """
+        query_lower = user_query.lower()
+        
+        # Schedule-related keywords
+        schedule_keywords = [
+            'schedule', 'availability', 'free time', 'busy', 'meeting', 'appointment',
+            'when', 'what time', 'calendar', 'routine', 'plan', 'commitment',
+            'free', 'available', 'occupied', 'booked', 'slot', 'time slot',
+            'compare', 'common', 'overlap', 'conflict', 'both users', 'all users',
+            'user 1', 'user 2', 'user1', 'user2', 'agent 1', 'agent 2'
+        ]
+        
+        # Check if query contains schedule-related keywords
+        is_schedule = any(keyword in query_lower for keyword in schedule_keywords)
+        
+        # Also check if it's asking about specific users (likely schedule-related)
+        query_words = query_lower.split()
+        user_mentions = any(word in ['user', 'agent'] for word in query_words)
+        
+        return is_schedule or user_mentions
+    
+    def _determine_relevant_agents(self, user_query: str, conversation_history: list = None):
+        """
+        Intelligently determine which agents should be queried based on the user's query
+        Uses conversation history to infer user context if not explicitly mentioned
+        
+        Args:
+            user_query: The user's query
+            conversation_history: Optional conversation history for context
+            
+        Returns:
             Dictionary of relevant agents to query
         """
+        # First, infer user from context (including conversation history)
+        inferred_user = self._infer_user_from_context(user_query, conversation_history)
+        
         # First, do a quick keyword check for common patterns
         query_lower = user_query.lower()
         
@@ -83,6 +191,15 @@ class OrchestratorAgent:
         mentions_user1 = any(keyword in query_lower for keyword in user1_keywords)
         mentions_user2 = any(keyword in query_lower for keyword in user2_keywords)
         mentions_all = any(keyword in query_lower for keyword in all_keywords)
+        
+        # Use inferred user if current query doesn't explicitly mention a user
+        if not mentions_user1 and not mentions_user2 and not mentions_all:
+            if inferred_user == 'user1':
+                return {'Agent 1': self.agent1}
+            elif inferred_user == 'user2':
+                return {'Agent 2': self.agent2}
+            elif inferred_user == 'both':
+                return self.agents
         
         # Fast routing based on keywords - skip LLM call when possible
         if mentions_user1 and not mentions_user2 and not mentions_all:
@@ -122,25 +239,85 @@ One word only: agent1/agent2/all"""
             # Fast fallback - default to all
             return self.agents
     
-    def query_all_agents(self, user_query: str):
+    def _answer_general_question(self, user_query: str):
+        """
+        Answer general (non-schedule) questions directly using LLM without agent coordination
+        
+        Args:
+            user_query: The user's general question
+            
+        Returns:
+            Direct LLM response
+        """
+        prompt = f"""You are a helpful AI assistant. Answer the following question naturally and conversationally.
+
+Question: {user_query}
+
+Provide a clear, helpful answer. Be concise (2-3 sentences maximum) and conversational. Do not use markdown formatting."""
+        
+        try:
+            if self.use_deepseek:
+                response = generate_content_with_deepseek(self.client, prompt, max_retries=2, base_delay=0.5)
+                answer = get_deepseek_response_text(response).strip()
+            else:
+                response = generate_content_with_retry(self.model, prompt, max_retries=2, base_delay=0.5)
+                answer = get_response_text(response).strip()
+            
+            # Clean markdown
+            answer = answer.replace('**', '').replace('*', '').replace('__', '').replace('_', '').replace('•', '')
+            return answer
+        except Exception as e:
+            return f"I apologize, but I encountered an error while processing your question: {str(e)}"
+    
+    def query_all_agents(self, user_query: str, conversation_history: list = None):
         """
         Intelligently query relevant agents based on the user's query
         Only queries agents that are relevant to the query
+        Answers general questions directly without agent coordination
         
         Args:
             user_query: The user's query
+            conversation_history: Optional conversation history for context
             
         Returns:
-            Aggregated response from relevant agents
+            Aggregated response from relevant agents or direct LLM response for general questions
         """
+        # Store in conversation history
+        if conversation_history:
+            self.conversation_history = conversation_history[-10:]  # Keep last 10 messages
+        
+        # Check if this is a general question (not schedule-related)
+        if not self._is_schedule_related_query(user_query):
+            print(f"\n{'='*70}")
+            print("💬 ORCHESTRATOR AGENT - GENERAL QUESTION")
+            print(f"{'='*70}")
+            print(f"📥 [USER → ORCHESTRATOR]")
+            print(f"   Query: {user_query}\n")
+            print("🤖 [ORCHESTRATOR] Detected general question - answering directly without agent coordination\n")
+            
+            direct_response = self._answer_general_question(user_query)
+            
+            print(f"📤 [ORCHESTRATOR → USER]")
+            print(f"   Status: ✓ Ready")
+            print(f"   Direct response provided")
+            print(f"{'='*70}\n")
+            
+            return {
+                "user_query": user_query,
+                "agent_responses": {},
+                "aggregated_response": direct_response,
+                "timestamp": datetime.now().isoformat(),
+                "query_type": "general"
+            }
+        
         print(f"\n{'='*70}")
         print("🔀 ORCHESTRATOR AGENT - INTELLIGENT ROUTING")
         print(f"{'='*70}")
         print(f"📥 [USER → ORCHESTRATOR]")
         print(f"   Query: {user_query}\n")
         
-        # Determine which agents are relevant
-        agents_to_query = self._determine_relevant_agents(user_query)
+        # Determine which agents are relevant (with context awareness)
+        agents_to_query = self._determine_relevant_agents(user_query, conversation_history)
         
         if len(agents_to_query) == len(self.agents):
             print("📡 [ORCHESTRATOR → AGENTS] Routing query to all agents...\n")
@@ -598,19 +775,20 @@ Provide your concise response:"""
         
         return answer if answer else "I couldn't extract schedule times for comparison. Please ensure schedules include time information."
     
-    def smart_query(self, user_query: str):
+    def smart_query(self, user_query: str, conversation_history: list = None):
         """
         Intelligently route query to relevant agents or query all
         This method now uses the same intelligent routing as query_all_agents
         
         Args:
             user_query: The user's query
+            conversation_history: Optional conversation history for context
             
         Returns:
             Response from relevant agents
         """
         # Use the same intelligent routing logic
-        return self.query_all_agents(user_query)
+        return self.query_all_agents(user_query, conversation_history)
     
     def get_all_agent_data_summary(self):
         """

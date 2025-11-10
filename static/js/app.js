@@ -186,6 +186,9 @@ async function sendQuery() {
     // Add query to communication log
     addLogEntry('user', 'orchestrator', query, 'query');
     
+    // Animate flow diagram - User sends query
+    animateFlowStart(queryType);
+    
     // Show loading message with typing indicator
     const loadingId = addMessageToChat('agent', '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>', queryType, true);
     
@@ -224,6 +227,9 @@ async function sendQuery() {
             addLogEntry(entry.from, entry.to, entry.message, entry.type);
         });
         
+        // Animate flow diagram - Show responses
+        animateFlowResponse(result.communication_log, queryType);
+        
         // Get and format response text for a friendlier UX
         const rawResponse = result.result.aggregated_response || result.result.response || 'No response';
         const responseText = formatAgentResponse(rawResponse);
@@ -257,12 +263,183 @@ async function sendQuery() {
             loadingMsg.remove();
         }
         
+        // Reset flow diagram on error
+        resetFlowDiagram();
+        
         // Show error message
         addMessageToChat('agent', `Error: ${error.message}`, queryType);
         addLogEntry('system', 'user', `Error: ${error.message}`, 'error');
     } finally {
         sendButton.disabled = false;
         sendButton.style.opacity = '1';
+    }
+}
+
+// Flow Diagram Animation Functions
+function animateFlowStart(queryType) {
+    updateFlowStatus('processing', 'Processing Query...');
+    
+    // Activate user node
+    const userNode = document.getElementById('flow-user-node');
+    userNode.classList.add('active');
+    
+    // Animate path from user to orchestrator
+    setTimeout(() => {
+        const path = document.getElementById('path-user-orch');
+        path.classList.add('active');
+        
+        // Activate orchestrator node
+        const orchNode = document.getElementById('flow-orch-node');
+        orchNode.classList.add('active', 'processing');
+        updateNodeStatus('orch-node-status', 'Processing');
+        
+        // Update badge
+        const badge = document.getElementById('orch-badge');
+        if (badge) {
+            const count = parseInt(badge.textContent) || 0;
+            badge.textContent = count + 1;
+        }
+        
+        // Determine which agents to activate based on query type
+        setTimeout(() => {
+            if (queryType === 'all' || queryType === 'common_time') {
+                // Activate both agents
+                activateAgentNode('flow-agent1-node', 'path-orch-agent1', 'agent1-node-status');
+                activateAgentNode('flow-agent2-node', 'path-orch-agent2', 'agent2-node-status');
+            } else if (queryType === 'smart') {
+                // Smart routing - will be determined by response
+                // For now, show orchestrator processing
+            }
+        }, 500);
+    }, 300);
+}
+
+function activateAgentNode(nodeId, pathId, statusId) {
+    const node = document.getElementById(nodeId);
+    const path = document.getElementById(pathId);
+    
+    if (node && path) {
+        node.classList.add('active', 'processing');
+        path.classList.add('active');
+        updateNodeStatus(statusId, 'Processing');
+    }
+}
+
+function animateFlowResponse(communicationLog, queryType) {
+    // Process communication log to animate responses
+    let agent1Responded = false;
+    let agent2Responded = false;
+    
+    communicationLog.forEach(entry => {
+        if (entry.type === 'response' || entry.type === 'analysis') {
+            if (entry.from === 'agent_1' || entry.from === 'agent1') {
+                agent1Responded = true;
+                setTimeout(() => {
+                    animateAgentResponse('flow-agent1-node', 'path-agent1-orch', 'agent1-node-status');
+                }, 200);
+            } else if (entry.from === 'agent_2' || entry.from === 'agent2') {
+                agent2Responded = true;
+                setTimeout(() => {
+                    animateAgentResponse('flow-agent2-node', 'path-agent2-orch', 'agent2-node-status');
+                }, 400);
+            }
+        }
+    });
+    
+    // Animate orchestrator aggregation
+    setTimeout(() => {
+        const orchNode = document.getElementById('flow-orch-node');
+        if (orchNode) {
+            orchNode.classList.remove('processing');
+            orchNode.classList.add('success');
+            updateNodeStatus('orch-node-status', 'Aggregating');
+            
+            // Animate response path back to user
+            setTimeout(() => {
+                const responsePath = document.getElementById('path-orch-user');
+                if (responsePath) {
+                    responsePath.classList.add('response-active');
+                }
+                
+                const userNode = document.getElementById('flow-user-node');
+                if (userNode) {
+                    userNode.classList.remove('active');
+                    userNode.classList.add('success');
+                }
+                
+                // Reset after showing response
+                setTimeout(() => {
+                    resetFlowDiagram();
+                    updateFlowStatus('idle', 'Idle');
+                }, 2000);
+            }, 500);
+        }
+    }, 1000);
+}
+
+function animateAgentResponse(nodeId, pathId, statusId) {
+    const node = document.getElementById(nodeId);
+    const path = document.getElementById(pathId);
+    
+    if (node && path) {
+        node.classList.remove('processing');
+        node.classList.add('success');
+        path.classList.add('response-active');
+        updateNodeStatus(statusId, 'Ready');
+    }
+}
+
+function resetFlowDiagram() {
+    // Reset all nodes
+    const nodes = ['flow-user-node', 'flow-orch-node', 'flow-agent1-node', 'flow-agent2-node'];
+    nodes.forEach(nodeId => {
+        const node = document.getElementById(nodeId);
+        if (node) {
+            node.classList.remove('active', 'processing', 'success');
+        }
+    });
+    
+    // Reset all paths
+    const paths = [
+        'path-user-orch', 'path-orch-agent1', 'path-orch-agent2',
+        'path-agent1-orch', 'path-agent2-orch', 'path-orch-user'
+    ];
+    paths.forEach(pathId => {
+        const path = document.getElementById(pathId);
+        if (path) {
+            path.classList.remove('active', 'response-active');
+        }
+    });
+    
+    // Reset node statuses
+    updateNodeStatus('user-node-status', 'Ready');
+    updateNodeStatus('orch-node-status', 'Ready');
+    updateNodeStatus('agent1-node-status', 'Ready');
+    updateNodeStatus('agent2-node-status', 'Ready');
+}
+
+function updateFlowStatus(status, text) {
+    const indicator = document.getElementById('flow-status-indicator');
+    const statusText = document.getElementById('flow-status-text');
+    
+    if (indicator) {
+        indicator.className = 'status-indicator';
+        if (status === 'processing') {
+            indicator.classList.add('processing');
+        } else if (status === 'active') {
+            indicator.classList.add('active');
+        }
+    }
+    
+    if (statusText) {
+        statusText.textContent = text;
+    }
+}
+
+function updateNodeStatus(statusId, text) {
+    const statusEl = document.getElementById(statusId);
+    if (statusEl) {
+        statusEl.textContent = text;
     }
 }
 
